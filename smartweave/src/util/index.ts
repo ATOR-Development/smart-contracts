@@ -79,3 +79,6 @@ export type PartialFunctionInput<T extends ContractFunctionInput> =
 export interface Constructor<T = {}> {
   new (...args: any[]): T
 }
+
+export const INVALID_INPUT = 'Invalid input'
+export const UPPER_HEX_CHARS = '0123456789ABCDEF'
