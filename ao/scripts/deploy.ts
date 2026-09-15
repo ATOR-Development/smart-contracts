@@ -39,6 +39,13 @@
 //   HB_URL=… DEPLOYER_PRIVATE_KEY=… MODULE_ID=… bun run scripts/deploy.ts <contract> --seed live
 //
 //   <contract>   operator-registry | relay-rewards | staking-rewards
+//   --previous-round <keep|now|0|MS>
+//                relay-rewards ONLY. Seeds PreviousRound.Timestamp, which is what sizes the FIRST
+//                round: the pot is TokensPerSecond * (roundTimestamp - PreviousRound.Timestamp).
+//                `keep` copies the dump's legacynet date and is why the 2026-08-20 cutover paid a
+//                48.22-day round. **A redeploy of a live chain passes `0`** — the contract then
+//                computes roundLength 0, so the first round pays nothing and the window from
+//                legacynet's last round to the redeploy is unrewarded.
 //   --seed       live|stage → migrate-on-spawn from that env's 2026-07-09 dump;
 //                current    → RESPAWN from an envelope already built by build-respawn-seed.ts,
 //                             i.e. the state the process holds NOW. Use this to replace a live
@@ -183,8 +190,13 @@ if (seed === 'current') {
   // are what the Tier-3 validations were run against, and they assert their own
   // totality (a dropped address fails the build rather than shrinking the migration).
   const script = CONTRACTS[contract].seedScript
-  console.log(`building seed from the ${seed} dump via scripts/${script} …`)
-  execFileSync('bun', ['run', path.join(AO, 'scripts', script), seed], {
+  // ⚠️ This REBUILDS the seed, overwriting anything built by hand beforehand. Any builder flag
+  // must therefore be forwarded from here — building the seed separately and then deploying does
+  // NOT work, the build here wins.
+  const prev = opt('previous-round')
+  const extra = prev ? ['--previous-round', prev] : []
+  console.log(`building seed from the ${seed} dump via scripts/${script} ${extra.join(' ')}…`)
+  execFileSync('bun', ['run', path.join(AO, 'scripts', script), seed, ...extra], {
     cwd: AO, stdio: 'inherit',
   })
   if (!fs.existsSync(envelopePath)) {

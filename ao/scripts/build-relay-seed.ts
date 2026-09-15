@@ -12,6 +12,26 @@ import path from 'path'
 import { buildSeedBundle, buildSeedEnvelope } from './util/native-bundle'
 
 const NET = (process.argv[2] || 'live') as 'live' | 'stage'
+
+// --previous-round <keep|now|MS>   default: keep
+//
+// 🚨 THE GAP-ROUND BUG, AND WHY A REDEPLOY MUST NOT USE `keep`.
+// `Complete-Round` sizes a round's entire pot as `TokensPerSecond * roundLength`, where
+// `roundLength = (roundTimestamp - PreviousRound.Timestamp) / 1000`. The 2026-07-09 dump carries
+// legacynet's last round date (2026-07-03T07:34:01.960Z), so the FIRST round after the 2026-08-20
+// cutover billed the whole interval since: Period 4,166,359 s = 48.22 days = 240,354 tokens, paid
+// in one round. Verified exact: gapRound.Timestamp - dump.PreviousRound.Timestamp == its Period.
+//
+// `keep` reproduces that and is retained ONLY so the golden/expected fixtures stay byte-stable.
+// **Any redeploy of a live state chain must pass `now`**, which starts the clock at the moment the
+// seed is built, so nothing accrues for the window between legacynet's last round and the redeploy.
+// Build the seed immediately before spawning: whatever time passes between the two IS billed by
+// the first round.
+const prevArg = (() => { const i = process.argv.indexOf('--previous-round'); return i > -1 ? process.argv[i + 1] : 'keep' })()
+if (!['keep', 'now'].includes(prevArg) && !/^\d+$/.test(prevArg)) {
+  console.error(`--previous-round must be keep, now, or epoch MILLIseconds (got ${prevArg})`)
+  process.exit(2)
+}
 const AO = path.resolve(import.meta.dir, '..')
 const DUMPS = path.join(AO, 'state-dumps/2026-07-09')
 const rd = (f: string) => JSON.parse(fs.readFileSync(path.join(DUMPS, f), 'utf8'))
@@ -53,7 +73,9 @@ const migrated = {
   TotalFingerprintReward: { ...asMap(dump.TotalFingerprintReward) },   // fingerprint keys verbatim
   Configuration: cfg,
   PreviousRound: {   // summary ONLY — Details dropped (D27)
-    Timestamp: dump.PreviousRound?.Timestamp ?? 0,
+    Timestamp: prevArg === 'keep' ? (dump.PreviousRound?.Timestamp ?? 0)
+      : prevArg === 'now' ? Date.now()
+      : parseInt(prevArg, 10),
     Period: dump.PreviousRound?.Period ?? 0,
     Summary: dump.PreviousRound?.Summary ?? {},
     Configuration: prevCfg,
